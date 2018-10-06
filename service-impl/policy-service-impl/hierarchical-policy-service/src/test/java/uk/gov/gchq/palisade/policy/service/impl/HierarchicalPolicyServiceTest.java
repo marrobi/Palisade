@@ -8,6 +8,7 @@ import uk.gov.gchq.palisade.Context;
 import uk.gov.gchq.palisade.User;
 import uk.gov.gchq.palisade.cache.service.impl.HashMapBackingStore;
 import uk.gov.gchq.palisade.cache.service.impl.SimpleCacheService;
+import uk.gov.gchq.palisade.policy.rule.SerialisableRule;
 import uk.gov.gchq.palisade.policy.service.MultiPolicy;
 import uk.gov.gchq.palisade.policy.service.Policy;
 import uk.gov.gchq.palisade.policy.service.request.CanAccessRequest;
@@ -16,6 +17,7 @@ import uk.gov.gchq.palisade.policy.service.request.SetResourcePolicyRequest;
 import uk.gov.gchq.palisade.policy.service.request.SetTypePolicyRequest;
 import uk.gov.gchq.palisade.policy.service.response.CanAccessResponse;
 import uk.gov.gchq.palisade.resource.LeafResource;
+import uk.gov.gchq.palisade.resource.Resource;
 import uk.gov.gchq.palisade.resource.impl.DirectoryResource;
 import uk.gov.gchq.palisade.resource.impl.FileResource;
 import uk.gov.gchq.palisade.resource.impl.SystemResource;
@@ -25,7 +27,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -51,50 +52,50 @@ public class HierarchicalPolicyServiceTest {
 
     @Before
     public void setup() {
-//        cacheService.getCodecs().registerFunctionPair(Policy.class, );
         policyService = new HierarchicalPolicyService().cacheService(cacheService);
 
         policyService.setResourcePolicy(new SetResourcePolicyRequest()
                         .resource(fileResource1)
                         .policy(new Policy<>()
                                 .owner(testUser)
-                                .resourceLevelSimplePredicateRule("Input is not null", Objects::nonNull)
-                                .recordLevelRule("Check user has 'Sensitive' auth", (record, user, justification) -> {
-                                    if (user.getAuths().contains("Sensitive")) {
-                                        return record;
-                                    } else {
-                                        return null;
-                                    }
-                                }))
+                                .resourceLevelRule("Input is not null", new SerialisableRule<>("NotNull", "return record != null ? record : null;", Resource.class.getCanonicalName()))
+                                .recordLevelRule("Check user has 'Sensitive' auth", new SerialisableRule<>("UserHasSensitiveClearance",
+                                    "if(user.getAuths().contains(\"Sensitive\")) { " +
+                                            "return record; " +
+                                            "} else { " +
+                                            "return null; " +
+                                            "}",
+                                        "T"))
+                                )
         );
 
+//        policyService.setResourcePolicy(new SetResourcePolicyRequest()
+//                                        .resource(fileResource2)
+//                                        .policy(new Policy<>()
+//                                                .owner(testUser)
+//                                                .resourceLevelSimplePredicateRule("Input is not null", Objects::nonNull)
+//                                                .recordLevelRule("Check user has 'Sensitive' auth", (record, user, justification) -> {
+//                                                    if (user.getAuths().contains("Sensitive")) {
+//                                                        return record;
+//                                                    } else {
+//                                                        return null;
+//                                                    }
+//                                                }))
+//                                );
+//
         policyService.setResourcePolicy(new SetResourcePolicyRequest()
-                        .resource(fileResource2)
-                        .policy(new Policy<>()
-                                .owner(testUser)
-                                .resourceLevelSimplePredicateRule("Input is not null", Objects::nonNull)
-                                .recordLevelRule("Check user has 'Sensitive' auth", (record, user, justification) -> {
-                                    if (user.getAuths().contains("Sensitive")) {
-                                        return record;
-                                    } else {
-                                        return null;
-                                    }
-                                }))
+                .resource(directoryResource)
+                .policy(new Policy<>()
+                        .owner(testUser)
+                        .recordLevelRule("Does nothing", new SerialisableRule<>("PassThrough", "return record;", "T")))
         );
-
-        policyService.setResourcePolicy(new SetResourcePolicyRequest()
-                        .resource(directoryResource)
-                        .policy(new Policy<>()
-                                .owner(testUser)
-                                .recordLevelSimpleFunctionRule("Does nothing", a -> a))
-        );
-
-        policyService.setResourcePolicy(new SetResourcePolicyRequest()
-                        .resource(systemResource)
-                        .policy(new Policy<>()
-                                .owner(testUser)
-                                .resourceLevelSimplePredicateRule("Resource serialised format is txt", resource -> ((LeafResource) resource).getSerialisedFormat().equalsIgnoreCase("txt")))
-        );
+//
+//        policyService.setResourcePolicy(new SetResourcePolicyRequest()
+//                .resource(systemResource)
+//                .policy(new Policy<>()
+//                        .owner(testUser)
+//                        .resourceLevelSimplePredicateRule("Resource serialised format is txt", resource -> ((LeafResource) resource).getSerialisedFormat().equalsIgnoreCase("txt")))
+//        );
     }
 
     private static SystemResource createTestSystemResource() {
