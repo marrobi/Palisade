@@ -1,0 +1,351 @@
+/*
+ * Copyright 2018 Crown Copyright
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package uk.gov.gchq.palisade.rest;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import uk.gov.gchq.palisade.exception.Error;
+import uk.gov.gchq.palisade.exception.NoConfigException;
+import uk.gov.gchq.palisade.exception.PalisadeRuntimeException;
+import uk.gov.gchq.palisade.jsonserialisation.JSONSerialiser;
+import uk.gov.gchq.palisade.service.Service;
+import uk.gov.gchq.palisade.service.request.ServiceConfiguration;
+
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status.Family;
+
+import java.io.UnsupportedEncodingException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.NoSuchElementException;
+import java.util.concurrent.CompletableFuture;
+
+import static java.util.Objects.requireNonNull;
+
+public abstract class ProxyRestService implements Service {
+    public static final String CHARSET = "UTF8";
+    public static final String VERSION = "v1";
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProxyRestService.class);
+    private static final String URL_CONF_KEY_SUFFIX = ".proxy.rest.url";
+    private String baseUrl;
+    private String baseUrlWithVersion;
+    private Client client;
+
+    public ProxyRestService() {
+        this.client = createClient();
+    }
+
+    public ProxyRestService baseUrl(final String baseUrl) {
+        requireNonNull(baseUrl, "The base url cannot be set to null.");
+        if (baseUrl.isEmpty()) {
+            throw new NullPointerException("The base url cannot be empty.");
+        } else {
+            this.baseUrl = baseUrl;
+            if (baseUrl.endsWith(VERSION + "/")) {
+                this.baseUrlWithVersion = baseUrl;
+            } else if (baseUrl.endsWith(VERSION)) {
+                this.baseUrlWithVersion = baseUrl + "/";
+            } else if (baseUrl.endsWith("/")) {
+                this.baseUrlWithVersion = baseUrl + VERSION + "/";
+            } else {
+                this.baseUrlWithVersion = baseUrl + "/" + VERSION + "/";
+            }
+        }
+        return this;
+    }
+
+    public String getBaseUrl() {
+        requireNonNull(baseUrl, "The base url has not been set.");
+        return baseUrl;
+    }
+
+    public void setBaseUrl(final String baseUrl) {
+        baseUrl(baseUrl);
+    }
+
+    public String getBaseUrlWithVersion() {
+        requireNonNull(baseUrlWithVersion, "The base url with version has not been set.");
+        return baseUrlWithVersion;
+    }
+
+    @Override
+    public void applyConfigFrom(final ServiceConfiguration config) throws NoConfigException {
+        requireNonNull(config, "config");
+        try {
+            String base = config.get(this.getClass().getTypeName() + URL_CONF_KEY_SUFFIX);
+            baseUrl(base);
+        } catch (NoSuchElementException e) {
+            throw new NoConfigException(e);
+        }
+    }
+
+    @Override
+    public void recordCurrentConfigTo(final ServiceConfiguration config) {
+        requireNonNull(config, "config");
+        config.put(getServiceClass().getTypeName(), getClass().getTypeName());
+        config.put(this.getClass().getTypeName() + URL_CONF_KEY_SUFFIX, this.baseUrl);
+    }
+
+    protected abstract Class<? extends Service> getServiceClass();
+
+    protected URL getUrl() {
+        return getUrl(null);
+    }
+
+    protected URL getUrl(final String endpoint) {
+        try {
+            return new URL(getStringUrl() + (null != endpoint ? endpoint : ""));
+        } catch (final MalformedURLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected String getStringUrl() {
+        return getBaseUrlWithVersion();
+    }
+
+    protected <O> CompletableFuture<O> doPostAsync(final String endpoint, final Object body, final TypeReference<O> outputType) {
+        return CompletableFuture.supplyAsync(() -> doPost(endpoint, body, outputType));
+    }
+
+    protected <O> CompletableFuture<O> doPostAsync(final String endpoint, final Object body, final Class<O> outputType) {
+        return CompletableFuture.supplyAsync(() -> doPost(endpoint, body, outputType));
+    }
+
+    protected <O> O doPost(final String endpoint, final Object body, final TypeReference<O> outputType) {
+        return doPost(getUrl(endpoint), body, outputType);
+    }
+
+    protected <O> O doPost(final String endpoint, final Object body, final Class<O> outputType) {
+        return doPost(getUrl(endpoint), body, outputType);
+    }
+
+    protected <O> O doPost(final URL url, final Object body, final TypeReference<O> outputType) {
+        try {
+            return doPost(url, new String(JSONSerialiser.serialise(body), "UTF-8"), outputType);
+        } catch (final UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected <O> O doPost(final URL url, final Object body, final Class<O> outputType) {
+        try {
+            return doPost(url, new String(JSONSerialiser.serialise(body), "UTF-8"), outputType);
+        } catch (final UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected <O> O doPost(final URL url, final String jsonBody, final TypeReference<O> outputType) {
+        final O responseObj;
+        try {
+            final Invocation.Builder request = createRequest(jsonBody, url);
+            final Response response = request.post(Entity.json(jsonBody));
+            responseObj = handleResponse(response, outputType);
+        } catch (final Exception e) {
+            LOGGER.debug("Request to {}: \n{}\n failed due to {}\n", url, e.getMessage(), e);
+            throw e;
+        }
+        LOGGER.debug("Request to {} was successful", url);
+        return responseObj;
+    }
+
+    protected <O> O doPost(final URL url, final String jsonBody, final Class<O> outputType) {
+        final O responseObj;
+
+        final Invocation.Builder request = createRequest(jsonBody, url);
+        try {
+            final Response response = request.post(Entity.json(jsonBody));
+            responseObj = handleResponse(response, outputType);
+        } catch (final Exception e) {
+            LOGGER.debug("Request to {}: \n{}\n failed due to {}\n", url, e.getMessage(), e);
+            throw e;
+        }
+        LOGGER.debug("Request to {} was successful", url);
+        return responseObj;
+    }
+
+    protected <O> CompletableFuture<O> doPutAsync(final String endpoint, final Object body, final Class<O> outputType) {
+        return CompletableFuture.supplyAsync(() -> doPut(endpoint, body, outputType));
+    }
+
+    protected <O> O doPut(final String endpoint, final Object body, final Class<O> outputType) {
+        return doPut(getUrl(endpoint), body, outputType);
+    }
+
+    protected <O> O doPut(final URL url, final Object body, final Class<O> outputType) {
+        try {
+            return doPut(url, new String(JSONSerialiser.serialise(body), "UTF-8"), outputType);
+        } catch (final UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected <O> O doPut(final URL url, final String jsonBody, final Class<O> outputType) {
+        final O responseObj;
+        try {
+            final Invocation.Builder request = createRequest(jsonBody, url);
+            final Response response;
+            response = request.put(Entity.json(jsonBody));
+            responseObj = handleResponse(response, outputType);
+        } catch (final Exception e) {
+            LOGGER.debug("Request to {} failed", url);
+            throw e;
+        }
+        LOGGER.debug("Request to {} was successful", url);
+        return responseObj;
+    }
+
+    protected Invocation.Builder createRequest(final String body, final URL url) {
+        final Invocation.Builder request = client.target(url.toString())
+                .request();
+        if (null != body) {
+            request.header("Content", MediaType.APPLICATION_JSON_TYPE);
+            request.build(body);
+        }
+        return request;
+    }
+
+    protected <O> O handleResponse(final Response response, final TypeReference<O> outputType) {
+        final String outputJson = extractJsonResponse(response);
+
+        O output = null;
+        if (null != outputJson) {
+            output = deserialise(outputJson, outputType);
+        }
+
+        return output;
+    }
+
+    protected <O> O handleResponse(final Response response, final Class<O> outputType) {
+        if (Response.class.equals(outputType)) {
+            validate(response);
+            return (O) response;
+        }
+
+        final String outputJson = extractJsonResponse(response);
+        O output = null;
+        if (null != outputJson) {
+            output = deserialise(outputJson, outputType);
+        }
+
+        return output;
+    }
+
+    private String extractJsonResponse(final Response response) {
+        final String outputJson = response.hasEntity() ? response.readEntity(String.class) : null;
+        validate(response, outputJson);
+        if (null != outputJson) {
+            LOGGER.debug("Request returned json: {}", outputJson);
+        }
+        return outputJson;
+    }
+
+    private void validate(final Response response) {
+        if (Family.SUCCESSFUL != response.getStatusInfo().getFamily()) {
+            validate(response, response.hasEntity() ? response.readEntity(String.class) : null);
+        }
+    }
+
+    private void validate(final Response response, final String outputJson) {
+        if (Family.SUCCESSFUL != response.getStatusInfo().getFamily()) {
+            final Error error;
+            if (null == outputJson) {
+                throw new PalisadeRuntimeException("Returned status: " + response.getStatus() + ". With null response content");
+            } else {
+                try {
+                    error = JSONSerialiser.deserialise(outputJson.getBytes(CHARSET), Error.class);
+                } catch (final Exception e) {
+                    LOGGER.error("Unable to recreate error object. Bad status {}. Detail: {}", response.getStatus(), outputJson);
+                    throw new PalisadeRuntimeException("Returned status: " + response.getStatus() + ". Response content was: " + outputJson, e);
+                }
+            }
+            LOGGER.error("Bad status {}. Detail: {}", response.getStatus(), outputJson);
+            throw error.createException();
+        }
+    }
+
+    protected <O> O deserialise(final String jsonString, final TypeReference<O> outputType) {
+        final byte[] jsonBytes = toBytes(jsonString);
+
+        return JSONSerialiser.deserialise(jsonBytes, outputType);
+    }
+
+    protected <O> O deserialise(final String jsonString, final Class<O> outputType) {
+        final byte[] jsonBytes = toBytes(jsonString);
+
+        return JSONSerialiser.deserialise(jsonBytes, outputType);
+    }
+
+    protected byte[] toBytes(final String jsonString) {
+        final byte[] jsonBytes;
+        try {
+            jsonBytes = jsonString.getBytes(CHARSET);
+        } catch (final UnsupportedEncodingException e) {
+            throw new RuntimeException("Unable to deserialise JSON: " + jsonString, e);
+        }
+        return jsonBytes;
+    }
+
+    protected Client createClient() {
+        return ClientBuilder.newClient();
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (this == o) {
+            return true;
+        }
+
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        final ProxyRestService that = (ProxyRestService) o;
+
+        return new EqualsBuilder()
+                .append(baseUrl, that.baseUrl)
+                .append(client, that.client)
+                .isEquals();
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder(7, 23)
+                .append(baseUrl)
+                .append(client)
+                .toHashCode();
+    }
+
+    @Override
+    public String toString() {
+        return new ToStringBuilder(this)
+                .append("baseUrl", baseUrl)
+                .append("client", client)
+                .toString();
+    }
+}
