@@ -29,11 +29,13 @@ import uk.gov.gchq.palisade.user.service.UserService;
 import uk.gov.gchq.palisade.user.service.request.AddUserRequest;
 import uk.gov.gchq.palisade.user.service.request.GetUserRequest;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.core.Context;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -46,6 +48,9 @@ import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
 @Api(value = "/")
 public class RestUserServiceV1 implements UserService {
     private static final Logger LOGGER = LoggerFactory.getLogger(RestUserServiceV1.class);
+
+    @Context
+    private HttpServletRequest httpRequest;
 
     private final UserService delegate;
 
@@ -90,6 +95,11 @@ public class RestUserServiceV1 implements UserService {
     @Override
     public CompletableFuture<User> getUser(final GetUserRequest request) {
         LOGGER.debug("Invoking getUser: {}", request);
+
+        // TODO: this is temporary just for debugging - remember to remove it
+        String clientIp = httpRequest.getRemoteAddr();
+        System.out.println(clientIp);
+
         return delegate.getUser(request);
     }
 
