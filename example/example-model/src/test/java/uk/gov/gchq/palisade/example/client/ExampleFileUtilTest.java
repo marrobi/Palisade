@@ -19,6 +19,7 @@ package uk.gov.gchq.palisade.example.client;
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import uk.gov.gchq.palisade.example.util.ExampleFileUtil;
@@ -30,7 +31,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
-
+//@Ignore
 public class ExampleFileUtilTest {
 
     private static Path temp;
@@ -84,7 +85,7 @@ public class ExampleFileUtilTest {
     public void shouldConvertLocalAbsolutePath() {
         //Given
         String input = temp.toString();
-        String expected = "file://" + temp.toString();
+        String expected = (System.getProperty("os.name").toLowerCase().contains("win") ? "file:///" : "file://") + temp.toString().replace("\\", "/");
 
         //When
         String actual = ExampleFileUtil.convertToFileURI(input).toString();

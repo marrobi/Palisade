@@ -74,8 +74,9 @@ public final class ExampleFileUtil {
         }
         URI uriPath;
         try {
-            uriPath = new URI(path);
-        } catch (URISyntaxException e) {
+            //uriPath = new URI(path);
+            uriPath = new File(path).toURI();
+        } catch (SecurityException e) { //catch (URISyntaxException e) {
             throw new RuntimeException("Can't parse the given file name", e);
         }
 
